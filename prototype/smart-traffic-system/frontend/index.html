@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Junction Vision — Smart Adaptive Traffic Signal System</title>
+<meta name="description" content="AI-powered adaptive traffic signal management for Mumbai 4-way junctions. YOLO vehicle detection, weighted scoring, deadlock-free signal timing, and live TomTom traffic.">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- TomTom SDK -->
+<link rel="stylesheet" href="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps.css">
+<script src="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps-web.min.js"></script>
+
+<!-- App CSS -->
+<link rel="stylesheet" href="css/styles.css">
+
+<style>
+  /* Inline favicon SVG */
+  link[rel="icon"] {}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     HEADER
+═══════════════════════════════════════════════════════════════ -->
+<header>
+  <div class="brand">
+    <div class="brand-mark">
+      <div class="brand-mark-inner"></div>
+    </div>
+    <div class="brand-text">
+      <h1>Junction Vision</h1>
+      <p>Adaptive traffic signal system — Mumbai 4-way junctions</p>
+    </div>
+  </div>
+
+  <div class="header-controls">
+    <!-- Backend status indicator -->
+    <div class="backend-pill">
+      <div class="status-pill" id="backend-indicator"></div>
+      <span id="backend-label" class="dim">Checking…</span>
+    </div>
+
+    <!-- Mumbai Junction selector -->
+    <div class="junction-selector-wrap">
+      <select id="junction-select" class="junction-select" title="Select a Mumbai junction">
+        <option value="">— Select Mumbai Junction —</option>
+      </select>
+      <span id="junction-note" class="junction-note-text"></span>
+    </div>
+
+    <!-- Manual coordinates -->
+    <div class="coord-group">
+      <input id="lat-input" type="text" placeholder="lat" value="19.0194" class="mono" title="Latitude">
+      <input id="lon-input" type="text" placeholder="lon" value="72.8432" class="mono" title="Longitude">
+      <button id="locate-btn" class="btn btn-primary btn-sm">📍 Locate</button>
+    </div>
+
+    <!-- Auto-detect toggle -->
+    <label class="toggle-switch" title="Auto-detect junction from TomTom data">
+      <input type="checkbox" id="auto-detect-toggle">
+      <div class="toggle-track"></div>
+      <div class="toggle-thumb"></div>
+    </label>
+    <span id="auto-detect-status" class="toggle-label dim">Manual coords</span>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     DASHBOARD GRID
+═══════════════════════════════════════════════════════════════ -->
+<div class="dashboard">
+
+  <!-- ─── LEFT: Upload feeds ──────────────────────────────────── -->
+  <div class="panel col-left fade-in">
+    <div class="panel-h2">
+      <div class="panel-dot"></div>
+      Approach Feeds
+      <span class="dim" style="font-size:11px;font-weight:400;margin-left:auto;">YOLO v8 · best.pt</span>
+    </div>
+    <div class="upload-stack" id="upload-stack"></div>
+  </div>
+
+  <!-- ─── CENTER: Junction status ─────────────────────────────── -->
+  <div class="panel fade-in" style="animation-delay:.05s">
+    <div class="panel-h2">
+      <div class="panel-dot go" id="status-dot"></div>
+      Junction Status
+    </div>
+
+    <div class="junction-wrap">
+
+      <!-- Aggregate stats -->
+      <div class="agg-row">
+        <div class="agg-stat">
+          <div class="label">Total vehicles</div>
+          <div class="value" id="agg-total">0</div>
+        </div>
+        <div class="agg-stat">
+          <div class="label">Weighted score</div>
+          <div class="value" id="agg-score">0.0</div>
+        </div>
+        <div class="agg-stat">
+          <div class="label">Busiest approach</div>
+          <div class="value small" id="agg-busiest">—</div>
+        </div>
+      </div>
+
+      <!-- Active phase banner -->
+      <div class="active-phase-banner">
+        Active: <span id="active-phase-timer">Waiting for detection…</span>
+      </div>
+
+      <!-- Emergency pre-emption banner -->
+      <div class="emergency-banner" id="emergency-banner">
+        <div class="emerg-icon">🚨</div>
+        <div>
+          <strong>Emergency Vehicle Pre-emption</strong><br>
+          Approach <span class="emerg-arm" style="font-family:var(--font-mono);color:#FF3B3B;">—</span>
+          has priority — maximum green allocated
+        </div>
+      </div>
+
+      <!-- SVG Junction diagram -->
+      <div id="junction-svg-container"></div>
+
+      <!-- ─ Signal Plan ─ -->
+      <div style="width:100%">
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">
+          Adaptive Signal Plan
+        </div>
+        <div class="signal-plan" id="signal-plan"></div>
+      </div>
+
+      <hr class="section-divider">
+
+      <!-- ─ Zone Calibration ─ -->
+      <div class="calibration-section">
+        <div class="cal-section-head">
+          <span class="cal-section-label">Zone Calibration</span>
+          <button id="cal-reset-btn" class="btn btn-ghost btn-sm">Reset all</button>
+        </div>
+        <div id="calibration-controls"></div>
+      </div>
+
+      <hr class="section-divider">
+
+      <!-- ─ Signal Engine Parameters ─ -->
+      <div style="width:100%">
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;">
+          Signal Engine Parameters
+        </div>
+        <div class="engine-params">
+          <div class="param-row">
+            <span class="param-label">Cycle length</span>
+            <input type="range" id="cycle-length-slider" class="param-slider"
+                   min="60" max="180" step="10" value="120">
+            <span class="param-val mono" id="cycle-length-val">120s</span>
+          </div>
+          <div class="param-row">
+            <span class="param-label">Min green</span>
+            <input type="range" id="min-green-slider" class="param-slider"
+                   min="8" max="30" step="1" value="12">
+            <span class="param-val mono" id="min-green-val">12s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── RIGHT: TomTom live traffic ──────────────────────────── -->
+  <div class="panel col-right fade-in" style="animation-delay:.10s">
+    <div class="panel-h2">
+      <div class="panel-dot caution"></div>
+      Live Traffic — TomTom
+    </div>
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Auto-detect toggle -->
+    <div class="auto-detect-row">
+      <span class="toggle-label">Auto-detect junction mode</span>
+    </div>
+
+    <!-- Flow stats -->
+    <div class="flow-stats">
+      <div class="flow-row">
+        <span class="k">Current speed</span>
+        <span class="v" id="tt-speed">—</span>
+      </div>
+      <div class="flow-row">
+        <span class="k">Free-flow speed</span>
+        <span class="v" id="tt-freeflow">—</span>
+      </div>
+      <div class="flow-bar"><div class="flow-bar-fill" id="tt-bar" style="width:0%"></div></div>
+      <div class="flow-row">
+        <span class="k">Flow ratio</span>
+        <span id="tt-trend" class="tt-trend dim">—</span>
+      </div>
+      <div class="flow-row">
+        <span class="k">Confidence</span>
+        <span class="v" id="tt-conf">—</span>
+      </div>
+    </div>
+
+    <!-- Class weights reference -->
+    <hr class="section-divider">
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">
+      Detection Class Weights
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <div class="flow-row"><span class="k">🚗 car</span>         <span class="v">1.0×</span></div>
+      <div class="flow-row"><span class="k">🛵 biker</span>       <span class="v">0.4×</span></div>
+      <div class="flow-row"><span class="k">🛺 auto-rickshaw</span><span class="v">0.8×</span></div>
+      <div class="flow-row"><span class="k">🚛 truck</span>       <span class="v">3.0×</span></div>
+      <div class="flow-row"><span class="k">🚌 heavy vehicle</span><span class="v">3.5×</span></div>
+      <div class="flow-row" style="color:var(--emergency)"><span class="k">🚑 emergency vehicle</span><span class="v" style="color:var(--emergency)">5.0× ⚡ PRE-EMPT</span></div>
+    </div>
+
+    <div class="api-note">
+      TomTom Maps SDK v6 · Traffic Flow API · Key embedded for prototype use only.
+      Auto-refreshes every 60s. Do not share publicly — rotate key before deployment.
+    </div>
+  </div>
+
+  <!-- ─── BOTTOM: Detection log ─────────────────────────────────────── -->
+  <div class="panel log-panel fade-in" style="animation-delay:.15s">
+    <div class="log-header">
+      <div class="panel-h2" style="margin-bottom:0">
+        <div class="panel-dot critical"></div>
+        Detection Log
+      </div>
+      <button id="clear-log-btn" class="btn btn-ghost btn-sm">Clear</button>
+    </div>
+    <div class="log-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Approach</th>
+            <th>File</th>
+            <th>Type</th>
+            <th>Vehicles</th>
+            <th>Wtd Score</th>
+            <th>Classes</th>
+            <th>Congestion</th>
+          </tr>
+        </thead>
+        <tbody id="log-body">
+          <tr class="empty-row">
+            <td colspan="8">No detections yet — upload approach feeds to begin.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /.dashboard -->
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SCRIPTS — order matters
+═══════════════════════════════════════════════════════════════ -->
+<script src="js/mumbai-junctions.js"></script>
+<script src="js/calibration.js"></script>
+<script src="js/signal-engine.js"></script>
+<script src="js/junction.js"></script>
+<script src="js/tomtom.js"></script>
+<script src="js/log.js"></script>
+<script src="js/detector.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

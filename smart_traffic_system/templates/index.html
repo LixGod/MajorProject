@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Smart Traffic Management System | Mumbai</title>
+    <meta name="description" content="AI-powered adaptive traffic management for Mumbai intersections with real-time vehicle detection and dynamic green-light prediction.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS for the Mumbai map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- Top Global Header -->
+    <header class="app-header">
+        <div class="header-logo">🚥</div>
+        <div class="header-text">
+            <h1>Mumbai Smart Traffic System</h1>
+            <p>Dynamic green-light prediction · YOLO vehicle detection · Zone-based adaptive control</p>
+        </div>
+    </header>
+
+    <!-- ════════════════════════════════════════ -->
+    <!-- STATE 1: UPLOAD VIEW                    -->
+    <!-- ════════════════════════════════════════ -->
+    <div id="upload-view" class="view-state active">
+        <div class="upload-page-grid">
+
+            <!-- LEFT: Map -->
+            <div class="map-panel">
+                <div class="map-panel-header">
+                    <h2>📍 Select Junction</h2>
+                    <p>Click a pin on the map to set the location for this camera feed.</p>
+                </div>
+                <div id="mumbai-map"></div>
+                <div id="junction-selected-badge" class="junction-badge">
+                    <span class="badge-dot"></span>
+                    <span id="junction-badge-text">WEH Vile Parle</span>
+                </div>
+            </div>
+
+            <!-- RIGHT: Upload -->
+            <div class="upload-panel">
+                <div class="upload-label">Upload Traffic Image or Video</div>
+                <div class="upload-dropzone" id="upload-dropzone" onclick="document.getElementById('video-upload').click()">
+                    <div class="upload-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                    </div>
+                    <div class="upload-btn-text">Click to Upload</div>
+                    <div class="upload-hint">JPG · PNG · MP4 · up to 200MB</div>
+                </div>
+                <input type="file" id="video-upload" accept="video/*,image/*" hidden>
+
+                <div class="upload-meta-box">
+                    <div class="meta-row">
+                        <span class="meta-key">📌 Junction</span>
+                        <span class="meta-val" id="meta-junction">WEH Vile Parle</span>
+                    </div>
+                    <div class="meta-row">
+                        <span class="meta-key">📍 Area</span>
+                        <span class="meta-val" id="meta-area">Western Express Highway</span>
+                    </div>
+                    <div class="meta-row">
+                        <span class="meta-key">🌐 Coordinates</span>
+                        <span class="meta-val" id="meta-coords">19.0990, 72.8493</span>
+                    </div>
+                </div>
+
+                <div id="upload-status" class="status-msg"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════════════════════════════════ -->
+    <!-- STATE 2: ANALYSIS VIEW                  -->
+    <!-- ════════════════════════════════════════ -->
+    <div id="analysis-view" class="view-state">
+        <!-- Analysis Nav Bar -->
+        <div class="analysis-nav">
+            <button class="btn-back" onclick="goBackToUpload()">
+                &#8592; New Upload
+            </button>
+            <div class="nav-junction-badge">
+                <span>📍</span>
+                <span id="nav-junction-name">WEH Vile Parle</span>
+                <span class="nav-junction-area" id="nav-junction-area">Western Express Highway</span>
+            </div>
+        </div>
+
+        <div class="analysis-top">
+            <!-- Left Side: Video -->
+            <div class="video-section">
+                <div class="video-wrapper">
+                    <img id="main-feed" src="" alt="AI Detected Traffic Frame" />
+                    <!-- Calibration Canvas Overlay -->
+                    <canvas id="calibration-canvas" class="calibration-overlay" style="display: none;"></canvas>
+                    <div class="overlay-controls" id="calib-controls" style="display: none;">
+                        <div class="control-badge">Defining: <span id="current-zone-label">Z1</span></div>
+                        <div class="control-hint">Click 4 points to define the polygon</div>
+                        <button class="btn btn-secondary" onclick="resetCurrentZone()">Reset Zone</button>
+                    </div>
+                </div>
+                <div class="video-actions">
+                    <span class="video-caption">AI Detected Traffic Frame</span>
+                    <div class="mode-controls">
+                        <button id="btn-start-calib" class="btn btn-warning" onclick="startCalibration()">Calibrate Zones</button>
+                        <button id="btn-reset-calib" class="btn btn-secondary" onclick="resetAllZones()">Reset Zones</button>
+                        <button id="btn-save-calib" class="btn btn-success" style="display: none;" onclick="saveCalibration()">Save & Apply</button>
+                        <button id="btn-cancel-calib" class="btn btn-danger" style="display: none;" onclick="cancelCalibration()">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Side: Metrics -->
+            <div class="stats-section">
+                <h2>Vehicle Count</h2>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value" id="count-lmv">0</div>
+                        <div class="metric-label">LMV</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="count-hmv">0</div>
+                        <div class="metric-label">HMV</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="count-auto">0</div>
+                        <div class="metric-label">Auto Rickshaw</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom: Signal -->
+        <div class="analysis-bottom">
+            <h2 class="signal-title">Live Signal</h2>
+            <div class="signal-container">
+                <div class="traffic-light">
+                    <div class="light red" id="light-red"></div>
+                    <div class="light yellow" id="light-yellow"></div>
+                    <div class="light green" id="light-green">
+                        <span id="timer-text">--</span>
+                    </div>
+                </div>
+                <div class="signal-info">
+                    <div class="signal-status" id="signal-status-text">AWAITING DATA</div>
+                    <div class="signal-junction-name" id="signal-junction-label"></div>
+                    <div class="timer-progress-bar">
+                        <div class="timer-progress-fill" id="timer-bar"></div>
+                    </div>
+                    <div class="timer-progress-label" id="timer-label-text">Green Phase</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
